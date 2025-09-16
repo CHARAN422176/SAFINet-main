@@ -12,16 +12,16 @@ parser = argparse.ArgumentParser()
 parser.add_argument('--testsize', type=int, default=288, help='testing size')
 opt = parser.parse_args()
 
-dataset_path = './datasets/'
+dataset_path = '/kaggle/input/'
 
 model = SAFINet()
-model.load_state_dict(torch.load('./models/SAFINet/SAFINet_ORSSD.pth'))
+model.load_state_dict(torch.load('/kaggle/input/safinet/pytorch/default/1/SAFINet_EORSSD.pth'))
 
 model.cuda()
 model.eval()
 
-# test_datasets = ['EORSSD']
-test_datasets = ['ORSSD']
+test_datasets = ['eorssd']
+# test_datasets = ['ORSSD']
 
 for dataset in test_datasets:
     save_path = './results/' + 'SAFINet+' + dataset + '/'
