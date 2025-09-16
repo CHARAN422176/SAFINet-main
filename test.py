@@ -5,42 +5,46 @@ import os, argparse, time, imageio
 from model.SAFINet import SAFINet
 from utils1.data import test_dataset
 
-# ---------------- Metrics Functions ---------------- #
-def mae_metric(pred, gt):
+# ---------------- Metrics ---------------- #
+def mae(pred, gt):
     return np.mean(np.abs(pred - gt))
 
 def f_measure(pred, gt, beta2=0.3):
-    pred = pred.astype(np.float32)
-    gt = gt.astype(np.float32)
-    pred = pred / (pred.max() + 1e-8)
-    gt = gt / (gt.max() + 1e-8)
-    tp = np.logical_and(pred >= 0.5, gt == 1).sum()
-    fp = np.logical_and(pred >= 0.5, gt == 0).sum()
-    fn = np.logical_and(pred < 0.5, gt == 1).sum()
-    precision = tp / (tp + fp + 1e-8)
-    recall = tp / (tp + fn + 1e-8)
-    f = (1 + beta2) * precision * recall / (beta2 * precision + recall + 1e-8)
+    pred_bin = (pred >= 0.5).astype(np.uint8)
+    tp = (pred_bin * gt).sum()
+    prec = tp / (pred_bin.sum() + 1e-8)
+    recall = tp / (gt.sum() + 1e-8)
+    f = (1 + beta2) * prec * recall / (beta2 * prec + recall + 1e-8)
     return f
 
 def s_measure(pred, gt):
-    # Object-aware + region-aware similarity simplified
     pred = pred.astype(np.float32)
     gt = gt.astype(np.float32)
     alpha = 0.5
+    # object-aware similarity
     fg = pred[gt == 1]
     bg = pred[gt == 0]
     o_fg = np.mean(fg) if fg.size > 0 else 0
     o_bg = np.mean(bg) if bg.size > 0 else 0
-    Q = alpha * o_fg + (1 - alpha) * o_bg
-    return Q
+    object_score = alpha * o_fg + (1 - alpha) * (1 - o_bg)
+    # region-aware similarity
+    h, w = gt.shape
+    y, x = h // 2, w // 2
+    gt_quads = [gt[:y, :x], gt[:y, x:], gt[y:, :x], gt[y:, x:]]
+    pr_quads = [pred[:y, :x], pred[:y, x:], pred[y:, :x], pred[y:, x:]]
+    region_score = 0
+    for gq, pq in zip(gt_quads, pr_quads):
+        region_score += np.mean(1 - np.abs(pq - gq))
+    region_score /= 4.0
+    return 0.5 * (object_score + region_score)
 
 def e_measure(pred, gt):
     pred = pred.astype(np.float32)
     gt = gt.astype(np.float32)
     fm = np.mean(pred)
     gt_mean = np.mean(gt)
-    align_matrix = 2 * (pred - fm) * (gt - gt_mean) / ((pred - fm)**2 + (gt - gt_mean)**2 + 1e-8)
-    return np.mean((align_matrix + 1) / 2)  # Normalize to [0,1]
+    align_matrix = 2 * (pred - fm) * (gt - gt_mean) / ((pred - fm) ** 2 + (gt - gt_mean) ** 2 + 1e-8)
+    return np.mean((align_matrix + 1) ** 2 / 4)
 
 # ---------------- Setup ---------------- #
 torch.cuda.set_device(0)
@@ -89,7 +93,7 @@ for dataset in test_datasets:
         imageio.imsave(save_path + name, (res * 255).astype(np.uint8))
 
         # ---------------- Compute Metrics ---------------- #
-        mae_all.append(mae_metric(res, gt))
+        mae_all.append(mae(res, gt))
         f_all.append(f_measure(res, gt))
         s_all.append(s_measure(res, gt))
         e_all.append(e_measure(res, gt))
